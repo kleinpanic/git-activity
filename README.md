@@ -1,0 +1,3 @@
+# git-activity
+
+Contribution gradient.

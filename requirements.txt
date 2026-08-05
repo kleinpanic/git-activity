@@ -1,0 +1,2 @@
+# Runtime dependency: only required for draw mode (Pillow).
+Pillow>=10.0.0

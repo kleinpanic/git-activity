@@ -36,6 +36,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ────────────────────────────── mode builders ──────────────────────────────
 
+# Saturday's weekday() value (Mon=0..Sun=6). Used to offset any date to
+# the Saturday at the end of its week.
+_SATURDAY_WEEKDAY = 5
+
+
+def _days_to_saturday(d: date) -> int:
+    """Days from d to the Saturday at the end of d's week (0..6)."""
+    return (_SATURDAY_WEEKDAY - d.weekday()) % 7
+
 
 def plan_gradient(args: argparse.Namespace) -> Plan:
     """Linear ramp from N_min to N_max across the date range.
@@ -76,12 +85,8 @@ def plan_text(args: argparse.Namespace) -> Plan:
     if text_cols == 0:
         raise SystemExit("text mode: empty text")
 
-    # Find the Saturday that ends the week containing --end.
-    # weekday(): Mon=0..Sun=6. We want rows indexed 0..6 = Sun..Sat.
-    # Map: weekday()=6 (Sun) -> row 0, weekday()=5 (Sat) -> row 6.
-    end_weekday = args.end.weekday()  # 0=Mon..6=Sun
-    sat_row = 5  # row 6 is Saturday (rows are 0-6, Sun..Sat)
-    sat_date = args.end + timedelta(days=(sat_row - end_weekday) % 7)
+    # Place the rightmost column on the Saturday of the week containing --end.
+    sat_date = args.end + timedelta(days=_days_to_saturday(args.end))
 
     # Place the rightmost column of the text on sat_date.
     start_col = sat_date - timedelta(days=text_cols - 1)
@@ -128,9 +133,7 @@ def plan_draw(args: argparse.Namespace) -> Plan:
         )
 
     # Place the rightmost column on the Saturday of the week containing --end.
-    end_weekday = args.end.weekday()
-    sat_row = 5
-    sat_date = args.end + timedelta(days=(sat_row - end_weekday) % 7)
+    sat_date = args.end + timedelta(days=_days_to_saturday(args.end))
 
     start_col = sat_date - timedelta(days=w - 1)
     if start_col < args.start:
@@ -241,13 +244,10 @@ def apply_defaults(args: argparse.Namespace) -> None:
         else:
             # text/draw: end on the Saturday of this week.
             today = date.today()
-            sat_row = 5
-            args.end = today + timedelta(days=(sat_row - today.weekday()) % 7)
+            args.end = today + timedelta(days=_days_to_saturday(today))
     if args.start is None:
-        if args.mode == "gradient":
-            args.start = args.end - timedelta(days=364)
-        else:
-            args.start = args.end - timedelta(days=364)
+        # 365 days back covers a year; the same default works for all modes.
+        args.start = args.end - timedelta(days=364)
 
 
 def main(argv: list[str] | None = None) -> int:

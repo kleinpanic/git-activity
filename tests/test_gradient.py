@@ -87,11 +87,13 @@ def test_gradient_curve_default_is_linear():
     assert plan_default.counts == plan_curve1.counts
 
 
-def test_gradient_curve_gt_one_pushes_mass_right():
-    """curve=2.0 must produce a stronger right skew than curve=1.0.
-    Both ramps have endpoints at min(1) and max(12). The first quarter
-    of days under curve=2.0 sits closer to min; the last quarter sits
-    closer to max. So curve_lastQ - curve_firstQ > lin_lastQ - lin_firstQ.
+def test_gradient_curve_gt_one_concentrates_first_quarter_near_min():
+    """curve=2.0 pulls more mass toward the right edge. Both ramps share
+    the same endpoints (min on day 0, max on the last day), but curve=2.0
+    makes t**2 smaller than t for 0 < t < 1, so early days get rounded
+    closer to min more often. The mean count of the first quarter of
+    days under curve=2.0 must therefore be strictly lower than under
+    curve=1.0.
     """
     plan_lin   = gg.plan_gradient(_ns("2024-01-01", "2024-12-31", curve=1.0))
     plan_curve = gg.plan_gradient(_ns("2024-01-01", "2024-12-31", curve=2.0))
@@ -99,12 +101,25 @@ def test_gradient_curve_gt_one_pushes_mass_right():
     n = len(sorted_dates)
     q = n // 4
     first_q = sorted_dates[:q]
-    last_q  = sorted_dates[-q:]
-    lin_delta   = (sum(plan_lin.counts[d]   for d in last_q) -
-                   sum(plan_lin.counts[d]   for d in first_q)) / q
-    curve_delta = (sum(plan_curve.counts[d] for d in last_q) -
-                   sum(plan_curve.counts[d] for d in first_q)) / q
-    assert curve_delta > lin_delta + 0.5
+    lin_first   = sum(plan_lin.counts[d]   for d in first_q) / q
+    curve_first = sum(plan_curve.counts[d] for d in first_q) / q
+    assert curve_first < lin_first - 0.5
+
+def test_gradient_curve_lt_one_concentrates_first_quarter_near_max():
+    """curve=0.5 makes t**0.5 larger than t for 0 < t < 1, so early days
+    get rounded closer to max more often. The first quarter of days
+    under curve=0.5 must therefore have a strictly higher mean than
+    under curve=1.0.
+    """
+    plan_lin   = gg.plan_gradient(_ns("2024-01-01", "2024-12-31", curve=1.0))
+    plan_curve = gg.plan_gradient(_ns("2024-01-01", "2024-12-31", curve=0.5))
+    sorted_dates = sorted(plan_lin.counts)
+    n = len(sorted_dates)
+    q = n // 4
+    first_q = sorted_dates[:q]
+    lin_first   = sum(plan_lin.counts[d]   for d in first_q) / q
+    curve_first = sum(plan_curve.counts[d] for d in first_q) / q
+    assert curve_first > lin_first + 0.5
 
 
 def test_gradient_curve_endpoint_invariant():

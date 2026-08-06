@@ -57,9 +57,12 @@ def plan_gradient(args: argparse.Namespace) -> Plan:
     span = (args.end - args.start).days
     if span < 0:
         raise SystemExit("gradient: --end must be on or after --start")
+    curve = getattr(args, 'curve', 1.0)
+    if curve <= 0:
+        raise SystemExit("gradient: --curve must be > 0")
     for i in range(span + 1):
         t = 1.0 if span == 0 else i / span  # 0..1, or 1.0 for single-day
-        n = round(args.min_commits + (args.max_commits - args.min_commits) * t)
+        n = round(args.min_commits + (args.max_commits - args.min_commits) * t**curve)
         counts[args.start + timedelta(days=i)] = n
     return Plan(counts=counts, start=args.start, end=args.end)
 
@@ -213,6 +216,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--max-commits", type=int, default=12,
         help="Gradient mode: commits on the last day of the range.",
+    )
+    p.add_argument(
+        "--curve", type=float, default=1.0,
+        help="Gradient mode: ramp shape (default %(default)s). "
+             "1.0 = linear; >1 = slower left ramp, darker right edge; "
+             "<1 = faster left ramp, lighter right edge. Must be > 0.",
     )
     p.add_argument("--text", type=str, help="text mode: letters to render.")
     p.add_argument("--image", type=str, help="draw mode: path to PNG (must be 7 px tall).")

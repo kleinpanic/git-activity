@@ -82,3 +82,20 @@ def test_plan_draw_image_path_required():
         pass
     else:
         raise AssertionError("expected SystemExit when --image is missing")
+
+
+def test_plan_draw_all_white_image_returns_empty_plan(tmp_path):
+    """An all-white (no lit pixels) 7px-tall image must not crash on
+    min(counts)/max(counts). It should return a Plan with empty counts
+    anchored on the requested --start/--end window.
+    """
+    if not PIL_OK:
+        import pytest
+        pytest.skip("Pillow not installed")
+    img_path = tmp_path / "blank.png"
+    Image.new("RGBA", (10, 7), (255, 255, 255, 255)).save(img_path)
+    plan = gg.plan_draw(_ns(str(img_path), "2026-01-01", "2026-12-31"))
+    assert plan.counts == {}
+    assert plan.start == date(2026, 1, 1)
+    assert plan.end == date(2026, 12, 31)
+    assert plan.total == 0

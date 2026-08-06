@@ -145,6 +145,11 @@ def plan_draw(args: argparse.Namespace) -> Plan:
             if a > 128 and (r + g + b) / 3 < 128:
                 counts[col_date] += 1
 
+    # All-white / transparent image -> no lit pixels. Return an empty
+    # plan anchored on the requested window instead of crashing on
+    # min(counts).
+    if not counts:
+        return Plan(counts={}, start=args.start, end=args.end)
     return Plan(counts=dict(counts), start=min(counts), end=max(counts))
 
 

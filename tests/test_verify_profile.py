@@ -212,3 +212,139 @@ def test_diff_missing_live_day_is_zero():
     assert diff.verdict == "mismatch"
     assert diff.total_expected == 5
     assert diff.total_observed == 0
+
+
+# -- categorize_delta (T-002) --
+
+def test_categorize_shortfall():
+    """Plan > live on a day -> shortfall delta."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    plan = {date(2025, 1, 5): 5}
+    live = {date(2025, 1, 5): 2}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    assert cat.total_shortfall == 3
+    assert cat.total_surplus == 0
+    assert cat.net_delta == -3
+
+
+def test_categorize_surplus():
+    """Live > plan on a day -> surplus delta (e.g. foreign contributions)."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    plan = {date(2025, 1, 5): 3}
+    live = {date(2025, 1, 5): 10}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    assert cat.total_shortfall == 0
+    assert cat.total_surplus == 7
+    assert cat.net_delta == 7
+
+
+def test_categorize_mixed_shortfall_and_surplus():
+    """Both sides have independent deltas across different days."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 6)
+    plan = {date(2025, 1, 5): 5, date(2025, 1, 6): 2}
+    live = {date(2025, 1, 5): 2, date(2025, 1, 6): 8}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    assert cat.total_shortfall == 3   # day 1: plan 5 vs live 2
+    assert cat.total_surplus == 6     # day 2: plan 2 vs live 8
+    assert cat.net_delta == 3         # 6 - 3
+
+
+def test_categorize_match_is_zero():
+    """Identical calendars produce zero shortfall and surplus."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    counts = {date(2025, 1, 5): 5}
+    diff = vp.diff_calendars(counts, dict(counts), start, end)
+    cat = vp.categorize_delta(diff)
+    assert cat.total_shortfall == 0
+    assert cat.total_surplus == 0
+    assert cat.net_delta == 0
+
+
+def test_categorize_counts_only_mismatched_days():
+    """Days where plan == live don't contribute to shortfall or surplus."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 7)
+    plan = {date(2025, 1, 5): 3, date(2025, 1, 6): 5, date(2025, 1, 7): 4}
+    live = {date(2025, 1, 5): 3, date(2025, 1, 6): 2, date(2025, 1, 7): 9}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    assert cat.total_shortfall == 3   # only Jan 6
+    assert cat.total_surplus == 5     # only Jan 7
+
+
+# -- explain_delta (T-002) --
+
+def test_explain_match():
+    """Matching calendars produce a 'match' verdict."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    counts = {date(2025, 1, 5): 5}
+    diff = vp.diff_calendars(counts, dict(counts), start, end)
+    cat = vp.categorize_delta(diff)
+    report = vp.explain_delta(diff, cat)
+    assert report.verdict == "match"
+    assert "agree" in report.summary.lower()
+
+
+def test_explain_surplus_only_is_explained():
+    """All-surplus delta is explained as foreign contributions."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    plan = {date(2025, 1, 5): 3}
+    live = {date(2025, 1, 5): 10}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    report = vp.explain_delta(diff, cat)
+    assert report.verdict == "explained"
+    assert "surplus" in report.summary.lower() or "foreign" in report.summary.lower()
+    assert report.surplus == 7
+    assert report.shortfall == 0
+
+
+def test_explain_shortfall_only_is_explained():
+    """All-shortfall delta is explained as plan not fully applied."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    plan = {date(2025, 1, 5): 5}
+    live = {date(2025, 1, 5): 2}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    report = vp.explain_delta(diff, cat)
+    assert report.verdict == "explained"
+    assert report.shortfall == 3
+    assert report.surplus == 0
+
+
+def test_explain_mixed_is_explained():
+    """Mixed shortfall+surplus is still explained with both numbers."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 6)
+    plan = {date(2025, 1, 5): 5, date(2025, 1, 6): 2}
+    live = {date(2025, 1, 5): 2, date(2025, 1, 6): 8}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    report = vp.explain_delta(diff, cat)
+    assert report.verdict == "explained"
+    assert report.shortfall == 3
+    assert report.surplus == 6
+
+
+def test_explain_summary_contains_numbers():
+    """The human-readable summary includes the key numeric facts."""
+    start = date(2025, 1, 5)
+    end = date(2025, 1, 5)
+    plan = {date(2025, 1, 5): 5}
+    live = {date(2025, 1, 5): 12}
+    diff = vp.diff_calendars(plan, live, start, end)
+    cat = vp.categorize_delta(diff)
+    report = vp.explain_delta(diff, cat)
+    assert str(diff.total_expected) in report.summary
+    assert str(diff.total_observed) in report.summary
+    assert str(cat.total_surplus) in report.summary

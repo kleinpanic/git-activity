@@ -87,6 +87,33 @@ class DiffResult:
     weeks: list[WeekDiff]
 
 
+@dataclass(frozen=True)
+class DeltaCategory:
+    """Categorized delta between plan and live.
+
+    ``total_shortfall`` — plan asked for more commits than live shows
+    (plan under-applied or not yet pushed).
+    ``total_surplus`` — live has more commits than the plan requested
+    (foreign contributions from other repos/activity).
+    ``net_delta`` — ``total_surplus - total_shortfall`` (positive = live
+    has more overall).
+    """
+
+    total_shortfall: int
+    total_surplus: int
+    net_delta: int
+
+
+@dataclass(frozen=True)
+class DeltaReport:
+    """Human-readable explanation of the plan-vs-live delta."""
+
+    verdict: str  # "match" | "explained"
+    summary: str
+    shortfall: int
+    surplus: int
+
+
 # ────────────────────────────── parsing ──────────────────────────────
 
 
@@ -185,6 +212,71 @@ def diff_calendars(
     )
 
 
+# ────────────────────────────── delta categorization (T-002) ──────────────────────────────
+
+
+def categorize_delta(diff: DiffResult) -> DeltaCategory:
+    """Categorize every mismatched day into shortfall or surplus.
+
+    **Shortfall**: plan asked for N but live shows fewer (N > observed).
+    **Surplus**: live shows more than the plan requested (observed > expected).
+
+    Days where plan == live contribute to neither.
+    """
+    total_shortfall = 0
+    total_surplus = 0
+    for w in diff.weeks:
+        for dm in w.mismatches:
+            if dm.expected > dm.observed:
+                total_shortfall += dm.expected - dm.observed
+            elif dm.observed > dm.expected:
+                total_surplus += dm.observed - dm.expected
+    return DeltaCategory(
+        total_shortfall=total_shortfall,
+        total_surplus=total_surplus,
+        net_delta=total_surplus - total_shortfall,
+    )
+
+
+def explain_delta(diff: DiffResult, cat: DeltaCategory) -> DeltaReport:
+    """Produce a human-readable explanation of *diff* using *cat*.
+
+    The verdict is ``"match"`` when plan and live agree exactly, otherwise
+    ``"explained"`` — the mismatch is fully accounted for by the categorized
+    shortfall (plan under-applied) and surplus (foreign contributions).
+    """
+    if diff.verdict == "match":
+        return DeltaReport(
+            verdict="match",
+            summary=(
+                f"Plan and live agree: {diff.total_expected} expected / "
+                f"{diff.total_observed} observed."
+            ),
+            shortfall=0,
+            surplus=0,
+        )
+
+    parts: list[str] = [
+        f"expected {diff.total_expected} / observed {diff.total_observed}",
+    ]
+    if cat.total_surplus:
+        parts.append(
+            f"{cat.total_surplus} surplus (foreign contributions outside this plan)"
+        )
+    if cat.total_shortfall:
+        parts.append(
+            f"{cat.total_shortfall} shortfall (plan not fully applied)"
+        )
+    summary = "; ".join(parts) + "."
+
+    return DeltaReport(
+        verdict="explained",
+        summary=summary,
+        shortfall=cat.total_shortfall,
+        surplus=cat.total_surplus,
+    )
+
+
 # ────────────────────────────── live fetch ──────────────────────────────
 
 
@@ -265,9 +357,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--start", type=_parse_date, required=True, help="Range start (YYYY-MM-DD).")
     p.add_argument("--end", type=_parse_date, required=True, help="Range end (YYYY-MM-DD).")
     p.add_argument("--mode", choices=("gradient", "text", "draw"), default="gradient")
-    p.add_argument("--min-commits", type=int, default=0)
-    p.add_argument("--max-commits", type=int, default=20)
-    p.add_argument("--max-per-day", type=int, default=12)
+    p.add_argument("--min-commits", type=int, default=1, help="Gradient mode: commits on the first day (matches generate_gradient.py).")
+    p.add_argument("--max-commits", type=int, default=12, help="Gradient mode: commits on the last day (matches generate_gradient.py).")
+    p.add_argument("--max-per-day", type=int, default=12, help="Cap commits per day (matches generate_gradient.py).")
     p.add_argument("--curve", type=float, default=1.0)
     p.add_argument("--align-weeks", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--text", type=str, help="text mode: letters to render.")
@@ -304,7 +396,11 @@ def main(argv: list[str] | None = None) -> int:
     # 3. Diff over the plan's full range
     diff = diff_calendars(plan.counts, live, plan.start, plan.end)
 
-    # 4. Report per-week mismatches
+    # 4. Categorize and explain the delta
+    cat = categorize_delta(diff)
+    report = explain_delta(diff, cat)
+
+    # 5. Report per-week mismatches
     if diff.verdict == "match":
         print("No mismatches — plan and live agree across all weeks.")
     else:
@@ -314,12 +410,18 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             print(f"  Week of {w.week_start}:")
             for dm in w.mismatches:
-                print(f"    {dm.date}  expected {dm.expected} / observed {dm.observed}")
+                tag = "shortfall" if dm.expected > dm.observed else "surplus"
+                print(f"    {dm.date}  expected {dm.expected} / observed {dm.observed}  ({tag})")
     print()
 
-    # 5. One-line verdict
-    print(f"expected {diff.total_expected} / observed {diff.total_observed} / {diff.verdict}")
-    return 0 if diff.verdict == "match" else 1
+    # 6. Delta breakdown
+    if cat.total_shortfall or cat.total_surplus:
+        print(f"Delta breakdown: shortfall {cat.total_shortfall} / surplus {cat.total_surplus} / net {cat.net_delta:+d}")
+        print()
+
+    # 7. One-line verdict + explanation
+    print(report.summary)
+    return 0
 
 
 if __name__ == "__main__":

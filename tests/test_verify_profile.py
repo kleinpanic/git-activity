@@ -11,9 +11,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-
 import verify_profile as vp
-
 
 # -- parse_calendar_response --
 
